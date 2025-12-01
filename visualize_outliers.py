@@ -39,8 +39,12 @@ def load_config_from_path(model_path):
         hidden_size = config.get("hidden_size")
         
         if num_heads and num_kv_heads and hidden_size:
-            head_dim = hidden_size // num_heads
-            print(f"Loaded config from {model_path}: Heads={num_heads}, KV_Heads={num_kv_heads}, Hidden={hidden_size} (Head_Dim={head_dim})")
+            # Check if head_dim is explicitly defined
+            head_dim = config.get("head_dim")
+            if head_dim is None:
+                head_dim = hidden_size // num_heads
+                
+            print(f"Loaded config from {model_path}: Heads={num_heads}, KV_Heads={num_kv_heads}, Hidden={hidden_size}, Head_Dim={head_dim}")
             return (num_heads, num_kv_heads, head_dim)
         else:
             print(f"Error: Missing required fields in config.json (num_attention_heads, num_key_value_heads, hidden_size)")
