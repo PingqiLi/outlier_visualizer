@@ -33,11 +33,19 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
         if file_type == "output":
             if "qkv_proj" in layer_full_name or "gate_up_proj" in layer_full_name:
                 needs_concat = True
+            elif "q_norm" in layer_full_name or "k_norm" in layer_full_name:
+                # Q/K Norm outputs are [Seq, Heads_Per_Rank, Head_Dim]
+                # We need to concat along the Heads dimension (dim=-2)
+                needs_concat = True
+                concat_dim = -2
+            else:
+                concat_dim = -1 # Default
         
         # Logic for Input
         if file_type == "input":
             if "o_proj" in layer_full_name or "down_proj" in layer_full_name:
                 needs_concat = True
+                concat_dim = -1
 
         tensors = []
         missing_file = False
@@ -72,7 +80,7 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
         
         try:
             if needs_concat:
-                stitched_tensor = torch.cat(tensors, dim=-1)
+                stitched_tensor = torch.cat(tensors, dim=concat_dim)
             else:
                 stitched_tensor = tensors[0]
             
@@ -81,6 +89,12 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
             # We should keep the batch dimension if it exists and is > 1
             if stitched_tensor.dim() > 1 and stitched_tensor.shape[0] == 1:
                 stitched_tensor = stitched_tensor.squeeze(0)
+            
+            # For QK Norm, flatten [Seq, Heads, Head_Dim] -> [Seq, Hidden]
+            if ("q_norm" in layer_full_name or "k_norm" in layer_full_name) and stitched_tensor.dim() == 3:
+                 s = stitched_tensor.shape
+                 # [Seq, Heads, Head_Dim] -> [Seq, Heads*Head_Dim]
+                 stitched_tensor = stitched_tensor.view(s[0], -1)
                 
             if layer_short_name not in results:
                 results[layer_short_name] = {}
