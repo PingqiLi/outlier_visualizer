@@ -144,57 +144,35 @@ def stitch_tensors(base_dir, output_dir, tp_size=4, num_workers=4):
             sorted_ids = sorted(token_map.keys())
             arrays = [token_map[tid] for tid in sorted_ids]
             
-            # Check shapes before stacking
-            # Prefill token (usually token 0) might have shape [Seq_Len, Hidden]
-            # Decode tokens (1+) have shape [Hidden] (after squeeze)
+            # Merge strategy: Flatten all to [N, Hidden] and concatenate
+            # Prefill: [Seq_Len, Hidden] -> [Seq_Len, Hidden]
+            # Decode: [Hidden] or [1, Hidden] -> [1, Hidden]
             
-            # Strategy: Separate Prefill (if different shape) from Decode
-            # Or just save Decode tokens if Prefill is the outlier
+            processed_arrays = []
+            for arr in arrays:
+                if arr.ndim == 1:
+                    # [Hidden] -> [1, Hidden]
+                    processed_arrays.append(arr.reshape(1, -1))
+                elif arr.ndim == 2:
+                    # [Seq_Len, Hidden] or [1, Hidden] -> Keep as is
+                    processed_arrays.append(arr)
+                else:
+                    print(f"  Warning: Unexpected shape {arr.shape} in {layer_name} {f_type}. Skipping.")
+                    continue
             
-            shapes = [a.shape for a in arrays]
-            unique_shapes = set(shapes)
-            
-            if len(unique_shapes) > 1:
-                print(f"  Warning: {layer_name} {f_type} has mixed shapes: {unique_shapes}. Separating by shape.")
+            if not processed_arrays:
+                continue
                 
-                # Group by shape
-                shape_groups = {}
-                for tid, arr in zip(sorted_ids, arrays):
-                    s = arr.shape
-                    if s not in shape_groups: shape_groups[s] = []
-                    shape_groups[s].append(arr)
+            try:
+                # Concatenate along axis 0 (Time dimension)
+                merged_array = np.concatenate(processed_arrays, axis=0)
                 
-                # Save each group
-                for s, group_arrays in shape_groups.items():
-                    try:
-                        merged_array = np.stack(group_arrays)
-                        # Construct filename based on shape (e.g., output_prefill.npy or output_decode.npy)
-                        # Heuristic: if shape has 2 dims (after squeeze was attempted), it's likely prefill/prompt
-                        # If shape has 1 dim, it's decode token
-                        
-                        suffix = ""
-                        if len(s) > 1:
-                            suffix = "_prefill"
-                        else:
-                            suffix = "_decode"
-                            
-                        # If multiple groups map to same suffix (unlikely with squeeze logic), append shape
-                        save_path = layer_out_dir / f"{f_type}{suffix}.npy"
-                        if save_path.exists():
-                             save_path = layer_out_dir / f"{f_type}{suffix}_{s[0]}.npy"
-                             
-                        np.save(save_path, merged_array)
-                        print(f"    Saved {save_path.name} with shape {merged_array.shape}")
-                    except Exception as e:
-                        print(f"    Error merging group {s}: {e}")
-            else:
-                # All shapes identical
-                try:
-                    merged_array = np.stack(arrays)
-                    save_path = layer_out_dir / f"{f_type}.npy"
-                    np.save(save_path, merged_array)
-                except Exception as e:
-                    print(f"Error merging {layer_name} {f_type}: {e}")
+                save_path = layer_out_dir / f"{f_type}.npy"
+                np.save(save_path, merged_array)
+                # print(f"    Saved {save_path.name} with shape {merged_array.shape}")
+                
+            except Exception as e:
+                print(f"Error merging {layer_name} {f_type}: {e}")
 
     print(f"Stitching complete. Data saved to {output_dir}")
 

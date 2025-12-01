@@ -90,83 +90,68 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
         print(f"Processing {layer_name}...")
         
         # Look for merged file: input.npy or output.npy
-        # Or split files: input_decode.npy, input_prefill.npy
+        # Look for merged file: input.npy or output.npy
+        file_path = layer_dir / f"{io_type}.npy"
         
-        file_candidates = [
-            layer_dir / f"{io_type}.npy",
-            layer_dir / f"{io_type}_decode.npy",
-            layer_dir / f"{io_type}_prefill.npy"
-        ]
-        
-        found_files = []
-        for p in file_candidates:
-            if p.exists():
-                found_files.append(p)
-        
-        if not found_files:
-            print(f"  No {io_type} files found in {layer_name}")
+        if not file_path.exists():
+            print(f"  No {io_type}.npy found in {layer_name}")
             continue
             
-        for file_path in found_files:
-            suffix = file_path.stem.replace(io_type, "") # e.g. "_decode" or ""
-            
-            try:
-                matrix = np.load(file_path)
-                # matrix shape should be [Num_Tokens, Hidden_Dim]
-                if matrix.ndim == 1:
-                    # Single token case?
-                    matrix = matrix.reshape(1, -1)
-            except Exception as e:
-                print(f"  Error loading {file_path}: {e}")
-                continue
-            
-            # Prepare items to plot: {name: matrix}
-            # Append suffix to name if it exists
-            plot_name = layer_name + suffix
-            items_to_plot = {plot_name: matrix}
-            
-            # Special handling for QKV splitting
-            if "qkv_proj" in layer_name and qkv_params and io_type == "output":
-                splits = split_qkv(matrix, *qkv_params)
-                if splits:
-                    # Add split components to plot list
-                    for k, v in splits.items():
-                        # Construct new name: layers.10.self_attn.q_proj_decode
-                        base_name = layer_name.replace("qkv_proj", k) + suffix
-                        items_to_plot[base_name] = v
-            
-            # Special handling for MoE Experts
-            if "experts" in layer_name:
-                print(f"  Note: '{layer_name}' represents the aggregated output of the MoE block (128 experts).")
+        try:
+            matrix = np.load(file_path)
+            # matrix shape should be [Num_Tokens, Hidden_Dim]
+            if matrix.ndim == 1:
+                # Single token case?
+                matrix = matrix.reshape(1, -1)
+        except Exception as e:
+            print(f"  Error loading {file_path}: {e}")
+            continue
+        
+        # Prepare items to plot: {name: matrix}
+        items_to_plot = {layer_name: matrix}
+        
+        # Special handling for QKV splitting
+        if "qkv_proj" in layer_name and qkv_params and io_type == "output":
+            splits = split_qkv(matrix, *qkv_params)
+            if splits:
+                # Add split components to plot list
+                for k, v in splits.items():
+                    # Construct new name: layers.10.self_attn.q_proj
+                    base_name = layer_name.replace("qkv_proj", k)
+                    items_to_plot[base_name] = v
+        
+        # Special handling for MoE Experts
+        if "experts" in layer_name:
+            print(f"  Note: '{layer_name}' represents the aggregated output of the MoE block (128 experts).")
 
-            for name, mat in items_to_plot.items():
-                # 1. Heatmap
-                plt.figure(figsize=(12, 8))
-                plt.imshow(np.abs(mat), aspect='auto', cmap='viridis', interpolation='nearest')
-                plt.colorbar(label='Absolute Magnitude')
-                plt.title(f"Activation Heatmap: {name} ({io_type})")
-                plt.xlabel("Channel Index")
-                plt.ylabel("Token ID")
-                
-                safe_name = name.replace(".", "_")
-                plt.savefig(output_path / f"{safe_name}_{io_type}_heatmap.png")
-                plt.close()
-                
-                # 2. Max-Abs
-                max_vals = np.max(np.abs(mat), axis=1)
-                token_ids = np.arange(len(max_vals)) # Assuming sequential 0..N
-                
-                plt.figure(figsize=(10, 6))
-                plt.plot(token_ids, max_vals, marker='.', linestyle='-', linewidth=0.5, markersize=2)
-                plt.title(f"Max-Abs Activation per Token: {name} ({io_type})")
-                plt.xlabel("Token ID")
-                plt.ylabel("Max Absolute Value")
-                plt.grid(True)
-                
-                plt.savefig(output_path / f"{safe_name}_{io_type}_max_abs.png")
-                plt.close()
-                
-            print(f"  Saved plots for {plot_name} (and splits if applicable)")
+        for name, mat in items_to_plot.items():
+            # 1. Heatmap
+            plt.figure(figsize=(12, 8))
+            plt.imshow(np.abs(mat), aspect='auto', cmap='viridis', interpolation='nearest')
+            plt.colorbar(label='Absolute Magnitude')
+            plt.title(f"Activation Heatmap: {name} ({io_type})")
+            plt.xlabel("Channel Index")
+            plt.ylabel("Token ID")
+            
+            safe_name = name.replace(".", "_")
+            plt.savefig(output_path / f"{safe_name}_{io_type}_heatmap.png")
+            plt.close()
+            
+            # 2. Max-Abs
+            max_vals = np.max(np.abs(mat), axis=1)
+            token_ids = np.arange(len(max_vals)) # Assuming sequential 0..N
+            
+            plt.figure(figsize=(10, 6))
+            plt.plot(token_ids, max_vals, marker='.', linestyle='-', linewidth=0.5, markersize=2)
+            plt.title(f"Max-Abs Activation per Token: {name} ({io_type})")
+            plt.xlabel("Token ID")
+            plt.ylabel("Max Absolute Value")
+            plt.grid(True)
+            
+            plt.savefig(output_path / f"{safe_name}_{io_type}_max_abs.png")
+            plt.close()
+            
+        print(f"  Saved plots for {layer_name} (and splits if applicable)")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize activation outliers from NPY files.")

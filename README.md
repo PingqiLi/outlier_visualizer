@@ -168,16 +168,15 @@ python3 stitch_dump.py --base_dir ./dump_data/msit_dump_{PID}/torch_tensors --ou
 **功能说明**:
 1.  **并行加速**: 支持多进程并行处理 (`--workers`)，大幅提升拼接速度。
 2.  **自动合并**: 将所有 Token 的数据合并为一个 `.npy` 文件，方便整体分析。
-3.  **智能分组**: 如果发现 Token 形状不一致（例如 Prefill 阶段的 Token 包含 Sequence 维度，而 Decode 阶段只有 Hidden 维度），脚本会自动将它们分开保存：
-    *   `output_prefill.npy`: 形状通常为 `[1, Seq_Len, Hidden]` 或 `[Seq_Len, Hidden]`。
-    *   `output_decode.npy`: 形状为 `[Num_Decode_Tokens, Hidden]`。
+3.  **智能拼接**: 自动处理 Prefill (Sequence) 和 Decode (Single Token) 的形状差异，将它们在时间维度上拼接。
+    *   最终形状: `[Total_Tokens, Hidden_Dim]`。
+    *   其中 `Total_Tokens` = `Prefill_Seq_Len` + `Decode_Steps`。
 4.  **目录重构**: 只保留包含数据的层级目录，结构更清晰：
     ```
     stitched_npy/
     ├── layers.0.mlp.down_proj/
-    │   ├── output_decode.npy
-    │   ├── output_prefill.npy
-    │   └── input_decode.npy
+    │   ├── output.npy
+    │   └── input.npy
     ├── layers.0.self_attn.qkv_proj/
     │   └── ...
     ```
@@ -189,7 +188,7 @@ A: 我为你提供了一个可视化脚本 `visualize_outliers.py`。
 *   **层过滤**: 支持 `--layer_pattern` (如 `layers.10`)，会自动匹配该层下的所有子模块。
 *   **QKV 拆分**: 支持 `--qkv_config` 参数，可以将 `qkv_proj` 自动拆分为 `q_proj`, `k_proj`, `v_proj`。
 *   **MoE 支持**: 自动识别 MoE 聚合输出。
-*   **智能读取**: 自动识别并分别可视化 `_decode.npy` 和 `_prefill.npy` 文件。
+*   **读取合并数据**: 适配新的 `stitch_dump.py` 输出格式。
 
 **使用方法**:
 ```bash
