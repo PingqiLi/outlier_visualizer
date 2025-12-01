@@ -138,51 +138,29 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
             print(f"  Note: '{layer_name}' represents the aggregated output of the MoE block (128 experts).")
 
         for name, mat in items_to_plot.items():
-            # 1. Heatmap
-            plt.figure(figsize=(12, 8))
-            plt.imshow(np.abs(mat), aspect='auto', cmap='viridis', interpolation='nearest')
-            plt.colorbar(label='Absolute Magnitude')
-            plt.title(f"Activation Heatmap: {name} ({io_type})")
-            plt.xlabel("Channel Index")
-            plt.ylabel("Token ID")
-            
-            safe_name = name.replace(".", "_")
-            plt.savefig(output_path / f"{safe_name}_{io_type}_heatmap.png")
-            plt.close()
-            
-            # 2. Max-Abs
-            max_vals = np.max(np.abs(mat), axis=1)
-            token_ids = np.arange(len(max_vals)) # Assuming sequential 0..N
-            
-            plt.figure(figsize=(10, 6))
-            plt.plot(token_ids, max_vals, marker='.', linestyle='-', linewidth=0.5, markersize=2)
-            plt.title(f"Max-Abs Activation per Token: {name} ({io_type})")
-            plt.xlabel("Token ID")
-            plt.ylabel("Max Absolute Value")
-            plt.grid(True)
-            
-            plt.savefig(output_path / f"{safe_name}_{io_type}_max_abs.png")
-            plt.close()
-            
-            # 3. 3D Surface Plot (Downsampled for performance)
+            # 3. 3D Surface Plot
             try:
                 from mpl_toolkits.mplot3d import Axes3D
                 
-                # Downsample to avoid too many points (e.g., max 100x100 grid)
-                rows, cols = mat.shape
-                row_step = max(1, rows // 100)
-                col_step = max(1, cols // 100)
+                # User requested full resolution (no downsampling)
+                # Note: 2000x2048 is large, but user is on server.
+                # We still keep the slicing syntax but with step=1
+                row_step = 1
+                col_step = 1
                 
                 mat_ds = np.abs(mat)[::row_step, ::col_step]
-                x = np.arange(0, cols, col_step)
-                y = np.arange(0, rows, row_step)
+                rows, cols = mat_ds.shape
+                x = np.arange(0, cols, 1)
+                y = np.arange(0, rows, 1)
                 X, Y = np.meshgrid(x, y)
                 
-                fig = plt.figure(figsize=(12, 10))
+                fig = plt.figure(figsize=(16, 12)) # Larger figure for detail
                 ax = fig.add_subplot(111, projection='3d')
                 
                 # Plot surface
-                surf = ax.plot_surface(X, Y, mat_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+                # stride parameters control the sampling of the rstride/cstride for the surface construction itself
+                # Setting them to 1 means full resolution surface
+                surf = ax.plot_surface(X, Y, mat_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
                 
                 ax.set_title(f"3D Activation Magnitude: {name}")
                 ax.set_xlabel('Channel Index')
@@ -191,12 +169,12 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
                 
                 fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
                 
-                plt.savefig(output_path / f"{safe_name}_{io_type}_3d.png")
+                plt.savefig(output_path / f"{safe_name}_{io_type}_3d.png", dpi=150) # Higher DPI
                 plt.close()
             except Exception as e:
                 print(f"  Warning: Failed to generate 3D plot for {name}: {e}")
             
-        print(f"  Saved plots for {layer_name} (and splits if applicable)")
+        print(f"  Saved 3D plot for {layer_name} (and splits if applicable)")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize activation outliers from NPY files.")
