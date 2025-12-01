@@ -53,33 +53,22 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
         layer_name = layer_dir.name
         print(f"Processing {layer_name}...")
         
-        # Find all token files
-        file_pattern = f"token_*_{io_type}.npy"
-        files = list(layer_dir.glob(file_pattern))
+        # Look for merged file: input.npy or output.npy
+        file_path = layer_dir / f"{io_type}.npy"
         
-        if not files:
-            print(f"  No {io_type} files found in {layer_name}")
+        if not file_path.exists():
+            print(f"  No {io_type}.npy found in {layer_name}")
             continue
             
-        files.sort(key=lambda x: int(x.name.split('_')[1]))
-        
-        data_list = []
-        token_ids = []
-        
-        for f in files:
-            try:
-                arr = np.load(f)
-                if arr.ndim > 1:
-                    arr = arr.flatten()
-                data_list.append(arr)
-                token_ids.append(int(f.name.split('_')[1]))
-            except Exception as e:
-                print(f"  Error loading {f}: {e}")
-        
-        if not data_list:
+        try:
+            matrix = np.load(file_path)
+            # matrix shape should be [Num_Tokens, Hidden_Dim]
+            if matrix.ndim == 1:
+                # Single token case?
+                matrix = matrix.reshape(1, -1)
+        except Exception as e:
+            print(f"  Error loading {file_path}: {e}")
             continue
-            
-        matrix = np.stack(data_list)
         
         # Prepare items to plot: {name: matrix}
         items_to_plot = {layer_name: matrix}
@@ -113,6 +102,8 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
             
             # 2. Max-Abs
             max_vals = np.max(np.abs(mat), axis=1)
+            token_ids = np.arange(len(max_vals)) # Assuming sequential 0..N
+            
             plt.figure(figsize=(10, 6))
             plt.plot(token_ids, max_vals, marker='.', linestyle='-', linewidth=0.5, markersize=2)
             plt.title(f"Max-Abs Activation per Token: {name} ({io_type})")
