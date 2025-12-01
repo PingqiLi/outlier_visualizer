@@ -23,8 +23,14 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
     # ColumnParallel: Output is split, needs concat. Input is replicated.
     # RowParallel: Input is split, Output is reduced (replicated).
     
-    for file_name in ["input.pth", "output.pth"]:
-        file_type = file_name.split(".")[0] # input or output
+    # Map actual filenames to logical types
+    # We use input_0.pth as the primary input (usually hidden_states for Linear layers)
+    file_mapping = {
+        "output.pth": "output",
+        "input_0.pth": "input"
+    }
+    
+    for file_name, file_type in file_mapping.items():
         
         # Check if we need to stitch this specific file type for this layer type
         needs_concat = False
@@ -33,13 +39,7 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
         if file_type == "output":
             if "qkv_proj" in layer_full_name or "gate_up_proj" in layer_full_name:
                 needs_concat = True
-            elif "q_norm" in layer_full_name or "k_norm" in layer_full_name:
-                # Q/K Norm outputs are [Seq, Heads_Per_Rank, Head_Dim]
-                # We need to concat along the Heads dimension (dim=-2)
-                needs_concat = True
-                concat_dim = -2
-            else:
-                concat_dim = -1 # Default
+            # q_norm/k_norm skipped
         
         # Logic for Input
         if file_type == "input":
@@ -65,7 +65,6 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
             
             file_path = rank_dir / str(token_id) / layer_full_name / file_name
             if not file_path.exists():
-                # print(f"DEBUG: Missing {file_path}")
                 missing_file = True
                 break
             
@@ -73,7 +72,6 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
                 t = torch.load(file_path, map_location="cpu")
                 tensors.append(t)
             except Exception:
-                print(f"DEBUG: Failed to load {file_path}")
                 missing_file = True
                 break
         
