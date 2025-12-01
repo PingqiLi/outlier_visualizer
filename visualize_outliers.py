@@ -151,6 +151,38 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
             plt.savefig(output_path / f"{safe_name}_{io_type}_max_abs.png")
             plt.close()
             
+            # 3. 3D Surface Plot (Downsampled for performance)
+            try:
+                from mpl_toolkits.mplot3d import Axes3D
+                
+                # Downsample to avoid too many points (e.g., max 100x100 grid)
+                rows, cols = mat.shape
+                row_step = max(1, rows // 100)
+                col_step = max(1, cols // 100)
+                
+                mat_ds = np.abs(mat)[::row_step, ::col_step]
+                x = np.arange(0, cols, col_step)
+                y = np.arange(0, rows, row_step)
+                X, Y = np.meshgrid(x, y)
+                
+                fig = plt.figure(figsize=(12, 10))
+                ax = fig.add_subplot(111, projection='3d')
+                
+                # Plot surface
+                surf = ax.plot_surface(X, Y, mat_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+                
+                ax.set_title(f"3D Activation Magnitude: {name}")
+                ax.set_xlabel('Channel Index')
+                ax.set_ylabel('Token ID')
+                ax.set_zlabel('Magnitude')
+                
+                fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
+                
+                plt.savefig(output_path / f"{safe_name}_{io_type}_3d.png")
+                plt.close()
+            except Exception as e:
+                print(f"  Warning: Failed to generate 3D plot for {name}: {e}")
+            
         print(f"  Saved plots for {layer_name} (and splits if applicable)")
 
 if __name__ == "__main__":
