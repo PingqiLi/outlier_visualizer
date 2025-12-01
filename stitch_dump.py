@@ -77,12 +77,12 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
         
         if missing_file:
             continue
+            
+        # Skip q_norm and k_norm as requested by user to avoid stitching issues
+        if "q_norm" in layer_full_name or "k_norm" in layer_full_name:
+            continue
         
         try:
-            if "q_norm" in layer_full_name or "k_norm" in layer_full_name:
-                shapes = [t.shape for t in tensors]
-                print(f"DEBUG: {layer_short_name} {file_type} shapes: {shapes} concat_dim={concat_dim}")
-                
             if needs_concat:
                 stitched_tensor = torch.cat(tensors, dim=concat_dim)
             else:
