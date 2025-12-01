@@ -77,6 +77,8 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
                 stitched_tensor = tensors[0]
             
             # Flatten if necessary (usually [1, Hidden] -> [Hidden])
+            # BUT: Prefill phase might have [Seq_Len, Hidden], Decode has [1, Hidden]
+            # We should keep the batch dimension if it exists and is > 1
             if stitched_tensor.dim() > 1 and stitched_tensor.shape[0] == 1:
                 stitched_tensor = stitched_tensor.squeeze(0)
                 
@@ -111,25 +113,11 @@ def stitch_tensors(base_dir, output_dir, tp_size=4, num_workers=4):
     
     print(f"Found {len(token_ids)} tokens. Starting parallel stitching with {num_workers} workers...")
     
-    # Data structure to hold all data: {layer_name: {input: [arrays], output: [arrays]}}
-    # Since we can't easily share a massive dict across processes without manager, 
-    # we will process token by token and collect results.
-    # Actually, for 2000 tokens, it might be better to iterate tokens in main process 
-    # and parallelize layer processing? Or parallelize token processing.
-    # Parallelizing token processing is easier.
-    
     layer_data = {} # {layer_name: {'input': {token_id: array}, 'output': {token_id: array}}}
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        # We need to map (token_id) -> results
-        # But we need to know which layers exist for each token.
-        # Let's assume all tokens have same layers.
-        # We'll just pass the token directory to the worker.
-        
         futures = []
         for t_dir in token_dirs:
-            # We pass the layer directories inside the token directory
-            # Actually, let's just pass the token ID and let the worker find files
             futures.append(executor.submit(process_token_wrapper, t_dir, tp_size, base_path))
             
         for future in tqdm(futures, total=len(futures), desc="Stitching Tokens"):
@@ -156,15 +144,57 @@ def stitch_tensors(base_dir, output_dir, tp_size=4, num_workers=4):
             sorted_ids = sorted(token_map.keys())
             arrays = [token_map[tid] for tid in sorted_ids]
             
-            try:
-                # Stack: [Num_Tokens, Hidden_Size]
-                merged_array = np.stack(arrays)
+            # Check shapes before stacking
+            # Prefill token (usually token 0) might have shape [Seq_Len, Hidden]
+            # Decode tokens (1+) have shape [Hidden] (after squeeze)
+            
+            # Strategy: Separate Prefill (if different shape) from Decode
+            # Or just save Decode tokens if Prefill is the outlier
+            
+            shapes = [a.shape for a in arrays]
+            unique_shapes = set(shapes)
+            
+            if len(unique_shapes) > 1:
+                print(f"  Warning: {layer_name} {f_type} has mixed shapes: {unique_shapes}. Separating by shape.")
                 
-                save_path = layer_out_dir / f"{f_type}.npy"
-                np.save(save_path, merged_array)
-                # print(f"Saved {layer_name}/{f_type}.npy shape={merged_array.shape}")
-            except Exception as e:
-                print(f"Error merging {layer_name} {f_type}: {e}")
+                # Group by shape
+                shape_groups = {}
+                for tid, arr in zip(sorted_ids, arrays):
+                    s = arr.shape
+                    if s not in shape_groups: shape_groups[s] = []
+                    shape_groups[s].append(arr)
+                
+                # Save each group
+                for s, group_arrays in shape_groups.items():
+                    try:
+                        merged_array = np.stack(group_arrays)
+                        # Construct filename based on shape (e.g., output_prefill.npy or output_decode.npy)
+                        # Heuristic: if shape has 2 dims (after squeeze was attempted), it's likely prefill/prompt
+                        # If shape has 1 dim, it's decode token
+                        
+                        suffix = ""
+                        if len(s) > 1:
+                            suffix = "_prefill"
+                        else:
+                            suffix = "_decode"
+                            
+                        # If multiple groups map to same suffix (unlikely with squeeze logic), append shape
+                        save_path = layer_out_dir / f"{f_type}{suffix}.npy"
+                        if save_path.exists():
+                             save_path = layer_out_dir / f"{f_type}{suffix}_{s[0]}.npy"
+                             
+                        np.save(save_path, merged_array)
+                        print(f"    Saved {save_path.name} with shape {merged_array.shape}")
+                    except Exception as e:
+                        print(f"    Error merging group {s}: {e}")
+            else:
+                # All shapes identical
+                try:
+                    merged_array = np.stack(arrays)
+                    save_path = layer_out_dir / f"{f_type}.npy"
+                    np.save(save_path, merged_array)
+                except Exception as e:
+                    print(f"Error merging {layer_name} {f_type}: {e}")
 
     print(f"Stitching complete. Data saved to {output_dir}")
 
