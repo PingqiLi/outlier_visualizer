@@ -65,6 +65,7 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
             
             file_path = rank_dir / str(token_id) / layer_full_name / file_name
             if not file_path.exists():
+                # print(f"DEBUG: Missing {file_path}")
                 missing_file = True
                 break
             
@@ -72,6 +73,7 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
                 t = torch.load(file_path, map_location="cpu")
                 tensors.append(t)
             except Exception:
+                print(f"DEBUG: Failed to load {file_path}")
                 missing_file = True
                 break
         
