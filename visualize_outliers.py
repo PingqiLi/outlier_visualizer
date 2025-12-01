@@ -142,6 +142,12 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
             print(f"  Note: '{layer_name}' represents the aggregated output of the MoE block (128 experts).")
 
         for name, mat in items_to_plot.items():
+            # Filter out norm layers as requested
+            if "norm" in name.lower():
+                continue
+                
+            safe_name = name.replace(".", "_")
+            
             # 3. 3D Surface Plot
             try:
                 from mpl_toolkits.mplot3d import Axes3D
