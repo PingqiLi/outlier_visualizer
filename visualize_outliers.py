@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import argparse
 from pathlib import Path
 import glob
+import json
 
 def split_qkv(matrix, num_heads, num_kv_heads, head_dim):
     # matrix shape: [Tokens, Hidden_Size] where Hidden_Size = (Num_Heads + 2 * Num_KV_Heads) * Head_Dim
@@ -23,21 +24,56 @@ def split_qkv(matrix, num_heads, num_kv_heads, head_dim):
     
     return {"q_proj": q, "k_proj": k, "v_proj": v}
 
-def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=None):
+def load_config_from_path(model_path):
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        print(f"Error: config.json not found in {model_path}")
+        return None
+        
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+            
+        num_heads = config.get("num_attention_heads")
+        num_kv_heads = config.get("num_key_value_heads")
+        hidden_size = config.get("hidden_size")
+        
+        if num_heads and num_kv_heads and hidden_size:
+            head_dim = hidden_size // num_heads
+            print(f"Loaded config from {model_path}: Heads={num_heads}, KV_Heads={num_kv_heads}, Hidden={hidden_size} (Head_Dim={head_dim})")
+            return (num_heads, num_kv_heads, head_dim)
+        else:
+            print(f"Error: Missing required fields in config.json (num_attention_heads, num_key_value_heads, hidden_size)")
+            return None
+            
+    except Exception as e:
+        print(f"Error reading config.json: {e}")
+        return None
+
+def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=None, model_path=None):
     data_path = Path(data_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    # Parse QKV config if provided: "num_heads,num_kv_heads,head_dim"
+    # Parse QKV config
     qkv_params = None
+    
+    # Priority 1: Explicit config string
     if qkv_config:
         try:
             parts = [int(x) for x in qkv_config.split(',')]
             if len(parts) == 3:
                 qkv_params = tuple(parts)
-                print(f"QKV Splitting Enabled: Heads={parts[0]}, KV_Heads={parts[1]}, Dim={parts[2]}")
+                print(f"Using provided QKV config: Heads={parts[0]}, KV_Heads={parts[1]}, Dim={parts[2]}")
         except:
             print("Invalid QKV config format. Use 'num_heads,num_kv_heads,head_dim'")
+            
+    # Priority 2: Auto-parse from model path
+    elif model_path:
+        qkv_params = load_config_from_path(model_path)
+        
+    if not qkv_params and "qkv_proj" in layer_pattern:
+        print("Warning: No QKV config provided. QKV splitting will be skipped.")
 
     # Find matching layer directories
     all_layers = [d for d in data_path.iterdir() if d.is_dir()]
@@ -123,7 +159,8 @@ if __name__ == "__main__":
     parser.add_argument("--layer_pattern", type=str, default="mlp", help="Substring to filter layers")
     parser.add_argument("--io_type", type=str, default="output", choices=["input", "output"], help="Input or Output activations")
     parser.add_argument("--qkv_config", type=str, default=None, help="Optional: 'num_heads,num_kv_heads,head_dim' to split qkv_proj")
+    parser.add_argument("--model_path", type=str, default=None, help="Optional: Path to model directory containing config.json for auto-parsing QKV config")
     
     args = parser.parse_args()
     
-    visualize_outliers(args.data_dir, args.output_dir, args.layer_pattern, args.io_type, args.qkv_config)
+    visualize_outliers(args.data_dir, args.output_dir, args.layer_pattern, args.io_type, args.qkv_config, args.model_path)

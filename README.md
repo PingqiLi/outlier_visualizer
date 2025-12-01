@@ -189,18 +189,21 @@ A: 我为你提供了一个可视化脚本 `visualize_outliers.py`。
 
 **使用方法**:
 ```bash
-# 1. 可视化第 10 层的所有 Output，并拆分 QKV (假设配置: Heads=32, KV_Heads=4, Dim=128)
+# 方法 1: 自动解析 Config (推荐)
+# 指定模型权重目录，脚本会自动读取 config.json 获取 QKV 配置
+python3 visualize_outliers.py \
+    --data_dir ./stitched_npy \
+    --layer_pattern layers.10 \
+    --io_type output \
+    --model_path /path/to/Qwen3-30B-A3B
+
+# 方法 2: 手动指定 QKV 配置
+# 假设配置: Heads=32, KV_Heads=4, Dim=128
 python3 visualize_outliers.py \
     --data_dir ./stitched_npy \
     --layer_pattern layers.10 \
     --io_type output \
     --qkv_config 32,4,128
-
-# 2. 可视化所有 MLP 层的 Output (MoE 聚合输出)
-python3 visualize_outliers.py \
-    --data_dir ./stitched_npy \
-    --layer_pattern mlp \
-    --io_type output
 ```
 
 **关于 MoE MLP**:
