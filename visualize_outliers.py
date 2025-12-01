@@ -120,6 +120,19 @@ def visualize_outliers(data_dir, output_dir, layer_pattern, io_type, qkv_config=
                     base_name = layer_name.replace("qkv_proj", k)
                     items_to_plot[base_name] = v
         
+        # Special handling for Gate-Up splitting
+        if "gate_up_proj" in layer_name and io_type == "output":
+            # gate_up_proj output is [Gate | Up] concatenated along last dim
+            hidden_dim = matrix.shape[-1]
+            if hidden_dim % 2 == 0:
+                split_dim = hidden_dim // 2
+                gate_proj = matrix[..., :split_dim]
+                up_proj = matrix[..., split_dim:]
+                
+                items_to_plot[layer_name.replace("gate_up_proj", "gate_proj")] = gate_proj
+                items_to_plot[layer_name.replace("gate_up_proj", "up_proj")] = up_proj
+                print(f"  Split gate_up_proj into gate_proj and up_proj")
+        
         # Special handling for MoE Experts
         if "experts" in layer_name:
             print(f"  Note: '{layer_name}' represents the aggregated output of the MoE block (128 experts).")
