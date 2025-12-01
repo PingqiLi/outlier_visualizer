@@ -79,10 +79,6 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
             continue
         
         try:
-        if missing_file:
-            continue
-        
-        try:
             if "q_norm" in layer_full_name or "k_norm" in layer_full_name:
                 shapes = [t.shape for t in tensors]
                 print(f"DEBUG: {layer_short_name} {file_type} shapes: {shapes} concat_dim={concat_dim}")
