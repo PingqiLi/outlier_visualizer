@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import argparse
 from pathlib import Path
 import torch_npu
@@ -98,6 +97,11 @@ def plot_activation(activation, output_dir, name_prefix=""):
     act_ds = downsample(np.abs(act_2d))
     
     # --- 1. 3D Surface Plot ---
+    try:
+        from mpl_toolkits.mplot3d import Axes3D
+    except ImportError:
+        pass
+
     fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(111, projection='3d')
     
