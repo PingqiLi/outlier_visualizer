@@ -176,8 +176,29 @@ python3 visualize_outliers.py \
 *   `--io_type`: `input` 或 `output`。
 
 ### 5.3 进阶：Dump 算子级数据 (如 FlatQuant)
-如果你需要分析 FlatQuant 的 `npu_kronecker_quant` 等Layer中更细粒度的算子：
-1.  **修改 `worker_v1.py`**:
+如果你需要分析 FlatQuant 的 `npu_kronecker_quant` 等Layer中更细粒度的算子，需要进行以下修改：
+
+1.  **修改 `msit_llm` 源码 (`hook_ops.py`)**:
+    由于 `npu_kronecker_quant` 接口默认不在 `msit_llm` 的 Hook 列表中，需要手动添加。
+    
+    **文件路径**: `.../msit/msit/components/llm/msit_llm/dump/torch_dump/hook_ops.py` (具体路径取决于你的安装位置)
+    
+    **修改内容**:
+    找到 `add_torch_npu_ops` 函数中的 `torch_npu_hooks` 列表，添加 `"npu_kronecker_quant"`：
+    ```python
+    def add_torch_npu_ops():
+        # ...
+        torch_npu_hooks = [
+            "fast_gelu",
+            "npu_mish",
+            # ...
+            "npu_all_gather_base_mm",
+            "npu_kronecker_quant",  # <--- 添加这一行
+        ]
+        # ...
+    ```
+
+2.  **修改 `worker_v1.py`**:
     配置 `DumpConfig` 开启 API 模式。
     ```python
     import torch_npu
@@ -189,7 +210,7 @@ python3 visualize_outliers.py \
     )
     ```
 
-2.  **结果**:
+3.  **结果**:
     数据会保存在 `.../root.model.layers.*.mlp.experts.npu_kronecker_quant/` 目录下。
     *   `input_0.pth`: 原始激活值 (BF16)
     *   `input_1.pth`: Left Transform Matrix
