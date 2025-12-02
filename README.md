@@ -155,23 +155,47 @@ dump_data/
 ### 常见问题
 **Q: 日志中出现 `Unrecognized data type <class 'NoneType'>` 警告？**
 A: **这是正常的，请忽略。**
-这是因为某些层（如 Attention 或 MLP）的 forward 函数中包含可选参数（如 `bias` 或 `residual`），当这些参数为 `None` 时，Hook 尝试捕获它们会触发此警告。这不会影响其他正常 Tensor 的 Dump。
+这是因为某些层（如 Attention 或 MLP）的 forward 函数中包含可选参数（如 `bias` 或 `residual`），当这些参数为 `None` 时，Hook 尝试捕获它们会触发此警告。这不会影响其他正常 Tensor### 4.2 仅 Dump Prefill 阶段 (推荐)
+为了避免 Decode 阶段产生大量数据，我们通常只 Dump Prefill 阶段（例如 2000 tokens）。
 
-**Q: TP=4 激活值拼接 (Stitching)**
-A: 我为你提供了一个自动拼接脚本 `stitch_dump.py`。
+1.  **修改 `vllm_ascend/worker/worker_v1.py`**:
+    将 `token_range` 设置为 `[0]`，表示只 Dump 第 0 步（即 Prefill）。
+    ```python
+    dump_config = DumpConfig(
+        dump_path='./dump_data',
+        token_range=[0],  # 只 Dump 第 0 步
+        layer_name='root.model.layers.*' 
+    )
+    ```
+    *注：你可以使用 `outlier_visualizer` 仓库中的 `vllm_ascend_changes.patch` 快速应用此修改。*
 
-**使用方法**:
+2.  **发送请求**:
+    使用 `dump_request.py` 发送请求。支持读取真实文本并截断到 2000 tokens。
+    ```bash
+    python dump_request.py --text_file your_text.txt --model_path /path/to/Qwen3-30B
+    ```
+    该脚本会自动设置 `max_tokens=1`，确保模型在 Prefill 完成后立即停止。
+
+### 4.3 拼接数据 (Stitching)
+使用 `stitch_dump.py` 将分散的 Tensor 拼接成 NPY 文件。
 ```bash
 python3 stitch_dump.py --base_dir ./dump_data/msit_dump_{PID}/torch_tensors --output_dir ./stitched_npy --workers 8
 ```
+*   **Input**: `input.npy` (Hidden States)
+*   **Output**: `output.npy` (Layer Output)
 
-**功能说明**:
-1.  **并行加速**: 支持多进程并行处理 (`--workers`)，大幅提升拼接速度。
-2.  **自动合并**: 将所有 Token 的数据合并为一个 `.npy` 文件，方便整体分析。
-3.  **智能拼接**: 自动处理 Prefill (Sequence) 和 Decode (Single Token) 的形状差异，将它们在时间维度上拼接。
-    *   最终形状: `[Total_Tokens, Hidden_Dim]`。
-    *   其中 `Total_Tokens` = `Prefill_Seq_Len` + `Decode_Steps`。
-4.  **目录重构**: 只保留包含数据的层级目录，结构更清晰：
+### 4.4 可视化 (Visualization)
+使用 `visualize_outliers.py` 生成 3D 激活图。
+```bash
+python3 visualize_outliers.py --data_dir ./stitched_npy --layer_pattern layers.10 --io_type output --model_path /path/to/Qwen3-30B --workers 16
+```
+*   **--model_path**: 自动读取 `config.json` 以支持 QKV 拆分。
+*   **--workers**: 并行生成，加速绘图。
+*   **功能**:
+    *   自动拆分 `qkv_proj` 为 Q, K, V。
+    *   自动拆分 `gate_up_proj` 为 Gate, Up。
+    *   生成高分辨率 3D 曲面图。
+    *   自动跳过 Norm 层和 `self_attn.attn`。只保留包含数据的层级目录，结构更清晰：
     ```
     stitched_npy/
     ├── layers.0.mlp.down_proj/
