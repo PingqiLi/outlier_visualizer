@@ -8,7 +8,8 @@
 
 1.  **进入 msit 源码目录**:
     ```bash
-    cd /Users/patrick/Projects/vllm-ascend/msit/msit
+    git clone https://gitcode.com/Ascend/msit.git
+    cd msit/msit
     ```
 
 2.  **安装 msit 基础包**:
@@ -23,7 +24,7 @@
 
 4.  **验证安装**:
     ```bash
-    python3 -c "import msit_llm; print('msit_llm installed successfully')"
+    msit check llm
     ```
 
 ## 1. 代码修改
@@ -78,64 +79,17 @@ vllm serve /workspace/weights/Qwen3-30B \
 1.  请确保 `--tensor-parallel-size 4` 与你的 NPU 卡数一致。
 2.  **强烈建议添加 `--enforce-eager` 参数**。`msit_llm` 基于 PyTorch Hook 实现，在 Eager 模式下工作最稳定。如果不加此参数，vLLM 可能会使用 Graph 模式 (CUDAGraph/ACLGraph)，导致部分中间层 Hook 失效或无法捕获。
 
-## 3. 发送请求进行 Dump
+## 3. 发送请求进行 dump_request.py
 
-使用提供的 Python 脚本 `dump_request.py` 发送请求。该脚本配置了 `ignore_eos=True` 和 `min_tokens=2000`，并使用 `temperature=0.0` (Greedy Decoding)，确保生成长度固定为 2000。
+使用提供的 Python 脚本 `dump_request.py` 发送请求。需要准备一个文本文件，脚本会自动截断到 2000 tokens。
 
 **运行脚本**:
 ```bash
-python3 dump_request.py
+python3 dump_request.py --text_file your_text.txt --model_path /path/to/model
 ```
 
-**脚本内容关键点**:
-```python
-    payload = {
-        "model": "/workspace/weights/Qwen3-30B",
-        "prompt": "The quick brown fox jumps over the lazy dog.",
-        "max_tokens": 2000,
-        "min_tokens": 2000,     # 强制生成至少2000 token
-        "ignore_eos": True,     # 忽略EOS
-        "temperature": 0.0,     # Greedy decoding
-    }
-```
-
-## 4. 关于 TP=4 激活值拼接 (Stitching)
-
-你提到的问题：**"TP=4, 4张npu dump的话，我是不是要按照rank把激活按照channel维度拼接起来呢？"**
-
-**答案：取决于具体的层类型。**
-
-vLLM 使用 Tensor Parallel (TP) 时，不同类型的层有不同的切分策略。`msit_llm` dump 下来的是单卡上的数据。
-
-### 需要拼接的层 (Column Parallel)
-以下层的输出在 TP 模式下是被切分的，你需要将 4 张卡的 dump 数据在 **最后一维 (Channel/Hidden Size)** 进行拼接 (Concatenate)：
-
-*   **`qkv_proj`**: Attention 的 QKV 投影。
-*   **`gate_up_proj`**: MLP 的 Gate 和 Up 投影。
-
-### 不需要拼接的层 (Row Parallel / Replicated)
-以下层的输出在 TP 模式下通常是已经经过 All-Reduce (求和) 的，或者是复制的，因此 4 张卡的数据是**完全相同**的（理论上），你只需要取其中任意一张卡的数据即可，**不需要拼接**：
-
-*   **`o_proj`**: Attention 的输出投影 (Row Parallel, 默认 `reduce_results=True`)。
-*   **`down_proj`**: MLP 的输出投影 (Row Parallel, 默认 `reduce_results=True`)。
-*   **`experts` (MoE 输出)**: MoE 模块的输出通常也是经过 Reduce 的，或者是完整的。
-
-### 总结表格
-
-| 模块 | 层名称 (示例) | TP 切分方式 | Dump 后处理 |
-| :--- | :--- | :--- | :--- |
-| Attention | `self_attn.qkv_proj` | Column Parallel | **需要拼接** (Dim -1) |
-| Attention | `self_attn.o_proj` | Row Parallel (Reduced) | **不需要拼接** (任取一份) |
-| MLP (MoE) | `mlp.gate_up_proj` | Column Parallel | **需要拼接** (Dim -1) |
-| MLP (MoE) | `mlp.down_proj` | Row Parallel (Reduced) | **不需要拼接** (任取一份) |
-| MoE Block | `mlp.experts` | Reduced | **不需要拼接** (任取一份) |
-
-## 5. 结果检查
-
-Dump 完成后，数据会保存在 `./dump_data` 目录下（根据 `DumpConfig` 配置）。
-
-### 目录结构说明
-目录结构如下：
+### 3.1 原始 Dump 目录结构
+脚本执行完成后，会在 `./dump_data` 生成如下结构（未拼接）：
 ```
 dump_data/
 └── msit_dump_{PID}/                # PID 为 vLLM 进程 ID
@@ -143,8 +97,8 @@ dump_data/
         └── npu{ID}_{PID}/          # npu{ID} 为卡号，如 npu0, npu1
             ├── 0/                  # Token ID (Step ID)
             │   ├── root.model.layers.0.self_attn.qkv_proj/
-            │   │   ├── input.pth   # 输入 Tensor
-            │   │   └── output.pth  # 输出 Tensor
+            │   │   ├── input.pth   # 输入 Tensor (BF16)
+            │   │   └── output.pth  # 输出 Tensor (BF16)
             │   ├── root.model.layers.0.self_attn.o_proj/
             │   │   ...
             │   └── ...
@@ -152,63 +106,91 @@ dump_data/
             └── ...
 ```
 
-### 常见问题
-**Q: 日志中出现 `Unrecognized data type <class 'NoneType'>` 警告？**
-A: **这是正常的，请忽略。**
-这是因为某些层（如 Attention 或 MLP）的 forward 函数中包含可选参数（如 `bias` 或 `residual`），当这些参数为 `None` 时，Hook 尝试捕获它们会触发此警告。这不会影响其他正常 Tensor 的 Dump。
+## 4. 激活值拼接 (Stitching)
 
-**Q: TP=4 激活值拼接 (Stitching)**
-A: 我为你提供了一个自动拼接脚本 `stitch_dump.py`。
+### 4.1 为什么需要拼接？
+vLLM 使用 Tensor Parallel (TP) 时，模型被切分到多张 NPY 卡上。`msit_llm` dump 下来的是单卡视角的数据。
+以 **Qwen3-MoE** 为例，我们需要根据切分策略还原完整的 Tensor：
 
-**使用方法**:
+*   **Column Parallel (列切分)**:
+    *   **例子**: `qkv_proj` (Attention 输入), `gate_up_proj` (MLP 输入)。
+    *   **现象**: 每张卡只计算了 Hidden Size 的一部分（例如总共 2048 维，4张卡每张负责 512 维）。
+    *   **处理**: 需要将 4 张卡的数据在 **最后一维 (Dim -1)** 进行拼接 (Concatenate)。
+
+*   **Row Parallel (行切分)**:
+    *   **例子**: `o_proj` (Attention 输出), `down_proj` (MLP 输出)。
+    *   **现象**: 每张卡计算部分结果后，会在内部进行 `All-Reduce` (求和)。
+    *   **处理**: 因此，Dump 下来的结果在所有卡上是**完全相同**的（理论上）。我们不需要拼接，**任取一张卡**的数据即可。
+
+*   **Fused MoE (混合专家)**:
+    *   **例子**: `mlp.experts`。
+    *   **现象**: MoE 算子内部处理了 Expert 分发和聚合，最终输出通常是完整的或者已经 Reduce 过的。
+    *   **处理**: 同 Row Parallel，**不需要拼接**，任取一份。
+
+### 4.2 执行拼接脚本
+使用 `stitch_dump.py` 自动处理上述逻辑。
+
 ```bash
 python3 stitch_dump.py --base_dir ./dump_data/msit_dump_{PID}/torch_tensors --output_dir ./stitched_npy --workers 8
 ```
 
-**功能说明**:
-1.  **并行加速**: 支持多进程并行处理 (`--workers`)，大幅提升拼接速度。
-2.  **自动合并**: 将所有 Token 的数据合并为一个 `.npy` 文件，方便整体分析。
-3.  **智能拼接**: 自动处理 Prefill (Sequence) 和 Decode (Single Token) 的形状差异，将它们在时间维度上拼接。
-    *   最终形状: `[Total_Tokens, Hidden_Dim]`。
-    *   其中 `Total_Tokens` = `Prefill_Seq_Len` + `Decode_Steps`。
-4.  **目录重构**: 只保留包含数据的层级目录，结构更清晰：
-    ```
-    stitched_npy/
-    ├── layers.0.mlp.down_proj/
-    │   ├── output.npy
-    │   └── input.npy
-    ├── layers.0.self_attn.qkv_proj/
-    │   └── ...
-    ```
-
-**Q: 如何可视化 Outlier？**
-A: 我为你提供了一个可视化脚本 `visualize_outliers.py`。
-
-**功能**:
-*   **层过滤**: 支持 `--layer_pattern` (如 `layers.10`)，会自动匹配该层下的所有子模块。
-*   **QKV 拆分**: 支持 `--qkv_config` 参数，可以将 `qkv_proj` 自动拆分为 `q_proj`, `k_proj`, `v_proj`。
-*   **MoE 支持**: 自动识别 MoE 聚合输出。
-*   **读取合并数据**: 适配新的 `stitch_dump.py` 输出格式。
-
-**使用方法**:
-```bash
-# 方法 1: 自动解析 Config (推荐)
-# 指定模型权重目录，脚本会自动读取 config.json 获取 QKV 配置
-python3 visualize_outliers.py \
-    --data_dir ./stitched_npy \
-    --layer_pattern layers.10 \
-    --io_type output \
-    --model_path /path/to/Qwen3-30B-A3B
-
-# 方法 2: 手动指定 QKV 配置
-# 假设配置: Heads=32, KV_Heads=4, Dim=128
-python3 visualize_outliers.py \
-    --data_dir ./stitched_npy \
-    --layer_pattern layers.10 \
-    --io_type output \
-    --qkv_config 32,4,128
+### 4.3 拼接后的目录结构
+脚本执行完成后，会在 `--output_dir` 生成如下结构：
+```
+stitched_npy/
+├── layers.0.self_attn.qkv_proj/    # Column Parallel (已拼接)
+│   ├── input.npy                   # [Seq_Len, Hidden_Size]
+│   └── output.npy                  # [Seq_Len, Hidden_Size * 3] (Q+K+V)
+├── layers.0.self_attn.o_proj/      # Row Parallel (单卡副本)
+│   ├── input.npy
+│   └── output.npy
+├── layers.0.mlp.gate_up_proj/      # Column Parallel (已拼接)
+│   ├── input.npy
+│   └── output.npy                  # [Seq_Len, Intermediate * 2] (Gate+Up)
+├── layers.0.mlp.down_proj/         # Row Parallel (单卡副本)
+│   └── ...
+└── ...
 ```
 
-**关于 MoE MLP**:
-Qwen3-MoE 的 MLP 层由 `gate` (Router) 和 `experts` (FusedMoE) 组成。
-*   `mlp.experts`: 代表 MoE 模块的整体输出。由于使用了 Fused Kernel，我们无法直接 Dump 内部 128 个 Expert 的独立激活值，但通常分析 MoE 的整体输入/输出对于 Outlier 定位已经足够。
+## 5. 可视化 (Visualization)
+
+使用 `visualize_outliers.py` 生成高分辨率 3D 激活图。
+
+### 5.1 功能特点
+*   **自动拆分 QKV**: 自动识别 `qkv_proj` 并将其拆分为 Q, K, V 三个独立的投影进行绘图。
+*   **自动拆分 MLP**: 自动识别 `gate_up_proj` 并拆分为 Gate, Up。
+*   **MoE 支持**: 支持 MoE 层的输入输出可视化。
+*   **3D 曲面图**: 生成 `(Token, Channel, Value)` 的 3D 交互式/静态图，直观展示 Outlier。
+
+### 5.2 运行命令
+```bash
+python3 visualize_outliers.py \
+    --data_dir ./stitched_npy \
+    --layer_pattern layers.10 \
+    --io_type output \
+    --model_path /path/to/Qwen3-30B \
+    --workers 16
+```
+*   `--model_path`: **(推荐)** 指定模型路径，脚本会自动读取 `config.json` 来获取 Head Dim 等信息，用于正确的 QKV 拆分。
+*   `--layer_pattern`: 过滤层名，支持正则。例如 `layers.10` 只看第 10 层。
+*   `--io_type`: `input` 或 `output`。
+
+### 5.3 进阶：Dump 算子级数据 (如 FlatQuant)
+如果你需要分析 FlatQuant 的 `npu_kronecker_quant` 等Layer中更细粒度的算子：
+1.  **修改 `worker_v1.py`**:
+    配置 `DumpConfig` 开启 API 模式。
+    ```python
+    import torch_npu
+    dump_config = DumpConfig(
+        ...,
+        mode=["api"], # 或 ["module", "api"]
+        api_list=[torch_npu.npu_kronecker_quant], # 白名单
+        layer_name='.*'
+    )
+    ```
+
+2.  **结果**:
+    数据会保存在 `.../root.model.layers.*.mlp.experts.npu_kronecker_quant/` 目录下。
+    *   `input_0.pth`: 原始激活值 (BF16)
+    *   `input_1.pth`: Left Transform Matrix
+    *   `input_2.pth`: Right Transform Matrix
