@@ -24,13 +24,14 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
     # RowParallel: Input is split, Output is reduced (replicated).
     
     # Map actual filenames to logical types
-    # We use input_0.pth as the primary input (usually hidden_states for Linear layers)
+    # We use input_0.pth as the primary input
+    # We check for output.pth first, then output_0.pth
     file_mapping = {
-        "output.pth": "output",
-        "input_0.pth": "input"
+        "output": ["output.pth", "output_0.pth"],
+        "input": ["input_0.pth"]
     }
     
-    for file_name, file_type in file_mapping.items():
+    for file_type, candidate_files in file_mapping.items():
         
         # Check if we need to stitch this specific file type for this layer type
         needs_concat = False
@@ -50,6 +51,22 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
         tensors = []
         missing_file = False
         
+        # Try to find a valid file from candidates
+        found_file_name = None
+        for fname in candidate_files:
+            # Check if this file exists in the first rank dir to decide if we should use it
+            # (We assume consistency across ranks)
+            # Actually, we need to find it for EACH rank. 
+            # But usually if output.pth exists, it exists for all.
+            # So let's just pick the first one that exists in rank 0 and stick with it.
+            rank0_dir = list(base_path.glob("npu0*"))[0]
+            if (rank0_dir / str(token_id) / layer_full_name / fname).exists():
+                found_file_name = fname
+                break
+        
+        if not found_file_name:
+            continue
+
         for i in range(tp_size):
             # Find the directory for this rank
             # We assume the structure is consistent across ranks
@@ -63,7 +80,7 @@ def process_layer(layer_dir, token_id, tp_size, base_path, output_path):
             # Use the first match
             rank_dir = rank_dirs[0]
             
-            file_path = rank_dir / str(token_id) / layer_full_name / file_name
+            file_path = rank_dir / str(token_id) / layer_full_name / found_file_name
             if not file_path.exists():
                 missing_file = True
                 break
