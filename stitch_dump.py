@@ -137,8 +137,13 @@ def stitch_tensors(base_dir, output_dir, tp_size=4, num_workers=4):
     
     # Find all npu directories to verify TP size
     npu_dirs = sorted(list(base_path.glob("npu*")))
-    if len(npu_dirs) < tp_size:
-        print(f"Warning: Found {len(npu_dirs)} NPU directories, expected {tp_size}.")
+    detected_tp_size = len(npu_dirs)
+    
+    if tp_size is None:
+        print(f"Auto-detected TP size: {detected_tp_size}")
+        tp_size = detected_tp_size
+    elif detected_tp_size < tp_size:
+        print(f"Warning: Found {detected_tp_size} NPU directories, expected {tp_size}.")
     
     ref_npu_dir = npu_dirs[0]
     
@@ -235,7 +240,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stitch vLLM TP dump files to NPY.")
     parser.add_argument("--base_dir", type=str, required=True, help="Path to torch_tensors directory")
     parser.add_argument("--output_dir", type=str, default="./stitched_npy", help="Output directory")
-    parser.add_argument("--tp_size", type=int, default=4, help="Tensor Parallel size")
+    parser.add_argument("--tp_size", type=int, default=None, help="Tensor Parallel size (auto-detect if not set)")
     parser.add_argument("--workers", type=int, default=8, help="Number of worker processes")
     
     args = parser.parse_args()
