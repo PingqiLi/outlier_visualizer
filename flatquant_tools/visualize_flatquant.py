@@ -14,23 +14,15 @@ def unpack_int32_to_int4(packed_tensor):
     # packed: [..., D//8] int32
     # output: [..., D] float
     
-    unpacked = []
-    # Extract 8 4-bit values
-    for i in range(8):
-        shift = i * 4
-        # Extract 4 bits
-        val = (packed_tensor >> shift) & 0xF
-        # Sign extension (assuming 2's complement 4-bit: -8..7)
-        # 0..7 -> 0..7
-        # 8..15 -> -8..-1
-        val = torch.where(val >= 8, val - 16, val)
-        unpacked.append(val)
-        
-    # Stack along the last dimension
-    # Assuming linear packing order: [0, 1, 2, 3, 4, 5, 6, 7] -> int32
-    result = torch.stack(unpacked, dim=-1) # [..., D//8, 8]
-    result = result.flatten(-2, -1) # [..., D]
-    return result.float()
+def unpack_int32_to_int4_signed(x):
+    assert x.dtype == torch.int32
+    E, K, N_ = x.shape # N_ = N/8
+
+    out = torch.stack([(x >> (4 * i)) & 0xF for i in range(8)], dim=-1)
+    out = out.to(torch.int8)
+    out = torch.where(out >= 8, out - 16, out)
+    out = out.reshape(E, K, N_ * 8).to(torch.int8)
+    return out
 
 def run_npu_kronecker_quant(
     x: torch.Tensor,
@@ -75,9 +67,16 @@ def run_npu_kronecker_quant(
     
     # Unpack
     print("Unpacking int32 result...")
-    x_unpacked = unpack_int32_to_int4(x_quantized_int32)
+    # Ensure 3D input for unpack_int32_to_int4_signed: [S, D//8] -> [S, 1, D//8]
+    if x_quantized_int32.dim() == 2:
+        x_quantized_int32 = x_quantized_int32.unsqueeze(1)
+        
+    x_unpacked = unpack_int32_to_int4_signed(x_quantized_int32)
     
-    # Reshape back to [S, D]
+    # Result is [S, 1, D], flatten to [S, D] and convert to float
+    x_unpacked = x_unpacked.flatten(1).float()
+    
+    # Reshape back to [S, D] (redundant if flattened above, but safe)
     x_unpacked = x_unpacked.reshape(s, d)
     
     # Return unpacked int4 values (float type)
@@ -196,7 +195,16 @@ def main():
             print(f"Output shape (Int32): {out_int32.shape}")
             
             print("Unpacking...")
-            act_unpacked = unpack_int32_to_int4(out_int32)
+            # Ensure 3D input: [S, D//8] -> [S, 1, D//8]
+            if out_int32.dim() == 2:
+                out_int32 = out_int32.unsqueeze(1)
+            elif out_int32.dim() == 3:
+                # If already [S, G1, G2//8], flatten last two to match [S, 1, D//8] logic or just pass as is?
+                # unpack expects E, K, N_. If we pass [S, G1, G2//8], then E=S, K=G1, N_=G2//8.
+                # Output will be [S, G1, G2]. This works perfectly!
+                pass
+                
+            act_unpacked = unpack_int32_to_int4_signed(out_int32).float()
             
         else:
             print(f"output_0.pth not found. Attempting to run operator from inputs...")
