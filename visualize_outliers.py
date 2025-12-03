@@ -94,23 +94,6 @@ def plot_layer(layer_dir, output_path, io_type, qkv_params):
                 items_to_plot[base_name] = v
             # Remove original combined plot to reduce clutter
             del items_to_plot[layer_name]
-        else:
-            print(f"  Debug: QKV split failed. Shape={matrix.shape}, Expected={(qkv_params[0]+2*qkv_params[1])*qkv_params[2]}")
-    
-    # Special handling for Gate-Up splitting
-    if "gate_up_proj" in layer_name and io_type == "output":
-        # gate_up_proj output is [Gate | Up] concatenated along last dim
-        hidden_dim = matrix.shape[-1]
-        if hidden_dim % 2 == 0:
-            split_dim = hidden_dim // 2
-            gate_proj = matrix[..., :split_dim]
-            up_proj = matrix[..., split_dim:]
-            
-            items_to_plot[layer_name.replace("gate_up_proj", "gate_proj")] = gate_proj
-            items_to_plot[layer_name.replace("gate_up_proj", "up_proj")] = up_proj
-            # Remove original combined plot
-            del items_to_plot[layer_name]
-            # print(f"  Split gate_up_proj into gate_proj and up_proj")
     
     # Special handling for MoE Experts
     if "experts" in layer_name:
@@ -122,6 +105,7 @@ def plot_layer(layer_dir, output_path, io_type, qkv_params):
         if "norm" in name.lower():
             continue
             
+        name = name.removeprefix("root.model.")
         safe_name = name.replace(".", "_")
         
         # 3. 3D Surface Plot
@@ -160,7 +144,7 @@ def plot_layer(layer_dir, output_path, io_type, qkv_params):
             plt.close()
             print(f"  Saved plot for {name}")
         except Exception as e:
-            print(f"  Warning: Failed to generate 3D plot for {name}: {e}")
+            print(f"  Warning: Failed to generate plot for {name}: {e}")
         
     # print(f"  Processed {layer_name}")
 

@@ -127,22 +127,9 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     ax2.set_zlabel('Magnitude', fontsize=12)
     fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, pad=0.1)
     
-    # Clean filename generation
-    # Try to extract layer info: root.model.layers.1.mlp.experts... -> L1_experts
-    import re
-    match = re.search(r'layers\.(\d+)', name_prefix)
-    layer_idx = match.group(1) if match else "unknown"
-    
-    component = "layer"
-    if "experts" in name_prefix:
-        component = "experts"
-    elif "mlp" in name_prefix:
-        component = "mlp"
-    elif "attn" in name_prefix:
-        component = "attn"
-        
-    short_name = f"L{layer_idx}_{component}"
-    filename = f"{short_name}_flatquant_comparison.png"
+    name_prefix = name_prefix.removeprefix("root.model.")
+    safe_name = name_prefix.replace(".", "_")
+    filename = f"{safe_name}.flatquant_comparison.png"
     
     plt.savefig(output_dir / filename, dpi=150, bbox_inches='tight')
     plt.close()
