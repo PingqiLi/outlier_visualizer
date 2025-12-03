@@ -76,16 +76,45 @@ def run_npu_kronecker_quant(
     # Return unpacked int4 values (float type)
     return x_unpacked.cpu()
 
-def plot_single(activation, output_dir, name_prefix=""):
+def plot_activation(orig_activation, transformed_activation, output_dir, name_prefix=""):
     """
-    Generates plots for a single tensor (e.g. when only output is available).
+    Generates plots for original and transformed activations.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    act_flat = activation.flatten().abs().float().numpy()
+    orig_ds = orig_activation.float().numpy()
+    trans_ds = transformed_activation.float().numpy()
     
-    # Use full resolution data
+    orig_flat = orig_activation.flatten().abs().float().numpy()
+    trans_flat = transformed_activation.flatten().abs().float().numpy()
+    
+    # --- 3D Surface Plot Comparison ---
+    fig = plt.figure(figsize=(20, 8))
+    
+    # Original
+    ax1 = fig.add_subplot(121, projection='3d')
+    # Meshgrid expects x (cols) and y (rows)
+    x1 = np.arange(orig_ds.shape[1]) # Channels
+    y1 = np.arange(orig_ds.shape[0]) # Tokens
+    X1, Y1 = np.meshgrid(x1, y1)
+    
+    surf1 = ax1.plot_surface(X1, Y1, orig_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+    ax1.set_title(f"Original Input (BF16)\nMax: {orig_flat.max():.2f}\nShape: {orig_ds.shape}")
+    ax1.set_xlabel('Channel (Dim 1)')
+    ax1.set_ylabel('Token (Dim 0)')
+    fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10)
+    
+    # Transformed
+    ax2 = fig.add_subplot(122, projection='3d')
+    x2 = np.arange(trans_ds.shape[1])
+    y2 = np.arange(trans_ds.shape[0])
+    X2, Y2 = np.meshgrid(x2, y2)
+    
+    surf2 = ax2.plot_surface(X2, Y2, trans_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+    ax2.set_title(f"FlatQuant Output (Int4 Levels)\nMax: {trans_flat.max():.2f}\nShape: {trans_ds.shape}")
+    ax2.set_xlabel('Channel (Dim 1)')
+    ax2.set_ylabel('Token (Dim 0)')
     fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
     
     plt.savefig(output_dir / f"{name_prefix}_comparison_3d.png", dpi=150)
