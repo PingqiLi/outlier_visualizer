@@ -5,7 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import argparse
 from pathlib import Path
 import torch_npu
-
+from scipy.stats import kurtosis
 
 def unpack_int32_to_int4_signed(x):
     assert x.dtype == torch.int32
@@ -86,6 +86,9 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     orig_flat = orig_activation.flatten().abs().float().numpy()
     trans_flat = transformed_activation.flatten().abs().float().numpy()
     
+    orig_kurt = kurtosis(orig_flat)
+    trans_kurt = kurtosis(trans_flat)
+    
     # Downsample for 3D plot (Target ~500x500)
     def get_downsampled_data(tensor):
         mat = tensor.abs().float().numpy()
@@ -112,7 +115,7 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     # Original
     ax1 = fig.add_subplot(121, projection='3d')
     surf1 = ax1.plot_surface(X1, Y1, orig_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
-    ax1.set_title(f"Original Activation (BF16)\nMax: {orig_flat.max():.2f}", fontsize=14)
+    ax1.set_title(f"Original Activation (BF16)\nKurtosis: {orig_kurt:.2f}", fontsize=14)
     ax1.set_xlabel('Channel Index', fontsize=12)
     ax1.set_ylabel('Token ID', fontsize=12)
     ax1.set_zlabel('Magnitude', fontsize=12)
@@ -121,7 +124,7 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     # Transformed
     ax2 = fig.add_subplot(122, projection='3d')
     surf2 = ax2.plot_surface(X2, Y2, trans_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
-    ax2.set_title(f"FlatQuant Output (Int4 Levels)\nMax: {trans_flat.max():.2f}", fontsize=14)
+    ax2.set_title(f"FlatQuant Output (Int4 Levels)\nKurtosis: {trans_kurt:.2f}", fontsize=14)
     ax2.set_xlabel('Channel Index', fontsize=12)
     ax2.set_ylabel('Token ID', fontsize=12)
     ax2.set_zlabel('Magnitude', fontsize=12)
