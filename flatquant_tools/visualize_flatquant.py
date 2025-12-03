@@ -125,69 +125,70 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
 def main():
     parser = argparse.ArgumentParser(description="Visualize FlatQuant activations (NPU Environment).")
     
-    # Option 1: Load existing Int32 output
-    parser.add_argument("--output_file", type=str, help="Path to output_0.pth (Int32 tensor)")
-    
-    # Option 2: Run Op from Inputs
-    parser.add_argument("--dump_dir", type=str, help="Directory containing input_0.pth, input_1.pth, input_2.pth")
-    
+    parser.add_argument("--dump_dir", type=str, required=True, help="Directory containing input_0.pth and (optional) output_0.pth")
     parser.add_argument("--output_dir", type=str, default="./flatquant_plots", help="Output directory")
     parser.add_argument("--device", type=str, default="npu:0", help="Device to run on")
     
     args = parser.parse_args()
     
     try:
-        if args.output_file:
-            # Path 1: Load and Unpack Output
-            print(f"Loading output file: {args.output_file}")
-            out_int32 = torch.load(args.output_file, map_location='cpu')
+        dump_path = Path(args.dump_dir)
+        if not dump_path.exists():
+            print(f"Error: Directory {dump_path} does not exist.")
+            return
+
+        # 1. Load Original Input (BF16)
+        input_path = dump_path / "input_0.pth"
+        if not input_path.exists():
+             print(f"Error: input_0.pth not found in {dump_path}")
+             return
+             
+        print(f"Loading input from {input_path}...")
+        act = torch.load(input_path, map_location='cpu')
+        
+        # 2. Try Load Output (Int32)
+        output_path = dump_path / "output_0.pth"
+        act_unpacked = None
+        
+        if output_path.exists():
+            print(f"Found output file: {output_path}")
+            out_int32 = torch.load(output_path, map_location='cpu')
             print(f"Output shape (Int32): {out_int32.shape}")
             
             print("Unpacking...")
-            # Unpack expects [..., N]
-            # If shape is [B, S, D//8], flatten to [B*S, D//8] or keep as is?
-            # unpack_int32_to_int4 handles arbitrary leading dims.
             act_unpacked = unpack_int32_to_int4(out_int32)
             
-            # If original shape was [S, D//8], new is [S, D]
-            # But if it was [S, G1, G2//8] (from kronecker output), new is [S, G1, G2]
-            # We need to flatten            # Reshape unpacked if needed
-            if act_unpacked.dim() == 3:
-                s, g1, g2 = act_unpacked.shape
-                act_unpacked = act_unpacked.reshape(s, g1 * g2)
-            
-            # Slice to first 2000 tokens
-            if act_unpacked.shape[0] > 2000:
-                print(f"Slicing first 2000 tokens from {act_unpacked.shape[0]}...")
-                act_unpacked = act_unpacked[:2000]
-            
-            print(f"Unpacked shape: {act_unpacked.shape}")
-            
-            plot_activation(act_unpacked, args.output_dir, name_prefix=Path(args.output_file).parent.name)
-            
-        elif args.dump_dir:
-            # Path 2: Run Op from Inputs
-            dump_path = Path(args.dump_dir)
-            act_path = dump_path / "input_0.pth"
+        else:
+            print(f"output_0.pth not found. Attempting to run operator from inputs...")
             left_path = dump_path / "input_1.pth"
             right_path = dump_path / "input_2.pth"
             
-            if not (act_path.exists() and left_path.exists() and right_path.exists()):
-                 print(f"Error: Missing input files in {dump_path}")
+            if not (left_path.exists() and right_path.exists()):
+                 print(f"Error: Missing input_1.pth or input_2.pth for op execution.")
                  return
 
-            print(f"Loading inputs from {dump_path}...")
-            act = torch.load(act_path, map_location='cpu')
             left = torch.load(left_path, map_location='cpu')
             right = torch.load(right_path, map_location='cpu')
             
             print(f"Running on {args.device}...")
             act_unpacked = run_npu_kronecker_quant(act, left, right, device=args.device)
+
+        # 3. Post-processing (Reshape & Slice)
+        if act_unpacked is not None:
+            # Reshape unpacked if needed (3D -> 2D)
+            if act_unpacked.dim() == 3:
+                s, g1, g2 = act_unpacked.shape
+                act_unpacked = act_unpacked.reshape(s, g1 * g2)
             
-            plot_activation(act_unpacked, args.output_dir, name_prefix=dump_path.name)
+            print(f"Unpacked shape: {act_unpacked.shape}")
+
+            # Slice to first 2000 tokens for clearer visualization
+            if act.shape[0] > 2000:
+                print(f"Slicing first 2000 tokens from {act.shape[0]}...")
+                act = act[:2000]
+                act_unpacked = act_unpacked[:2000]
             
-        else:
-            print("Error: Must provide either --output_file or --dump_dir")
+            plot_activation(act, act_unpacked, args.output_dir, name_prefix=dump_path.name)
             
     except Exception as e:
         print(f"Error: {e}")
