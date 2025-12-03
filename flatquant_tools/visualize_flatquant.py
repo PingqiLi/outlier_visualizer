@@ -6,14 +6,7 @@ import argparse
 from pathlib import Path
 import torch_npu
 
-def unpack_int32_to_int4(packed_tensor):
-    """
-    Unpacks [..., N] int32 tensor to [..., N*8] float tensor (representing int4 values).
-    Assumes 8x4-bit packing in int32.
-    """
-    # packed: [..., D//8] int32
-    # output: [..., D] float
-    
+
 def unpack_int32_to_int4_signed(x):
     assert x.dtype == torch.int32
     E, K, N_ = x.shape # N_ = N/8
