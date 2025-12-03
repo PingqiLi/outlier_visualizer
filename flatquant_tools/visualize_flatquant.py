@@ -156,10 +156,15 @@ def main():
             
             # If original shape was [S, D//8], new is [S, D]
             # But if it was [S, G1, G2//8] (from kronecker output), new is [S, G1, G2]
-            # We need to flatten to [S, Hidden] for plotting
+            # We need to flatten            # Reshape unpacked if needed
             if act_unpacked.dim() == 3:
                 s, g1, g2 = act_unpacked.shape
                 act_unpacked = act_unpacked.reshape(s, g1 * g2)
+            
+            # Slice to first 2000 tokens
+            if act_unpacked.shape[0] > 2000:
+                print(f"Slicing first 2000 tokens from {act_unpacked.shape[0]}...")
+                act_unpacked = act_unpacked[:2000]
             
             print(f"Unpacked shape: {act_unpacked.shape}")
             
