@@ -26,24 +26,21 @@ Dump 目录应包含：
 
 ### 2. 运行可视化
 
-你可以通过指定 Dump 目录来运行脚本：
+只需指定 Dump 目录：
 
 ```bash
 python3 visualize_flatquant.py --dump_dir /path/to/dump/layer_X/npu_kronecker_quant/
 ```
 
-或者指定单独的文件：
-
-```bash
-python3 visualize_flatquant.py \
-    --input_act /path/to/input_0.pth \
-    --left_mat /path/to/input_1.pth \
-    --right_mat /path/to/input_2.pth
-```
+脚本会自动检测：
+1.  `input_0.pth`: 必须存在。
+2.  `output_0.pth`: 如果存在，直接加载并解包可视化。
+3.  如果 `output_0.pth` 不存在，尝试加载 `input_1.pth` 和 `input_2.pth` 并调用 NPU 算子计算。
 
 ### 3. 输出
 
 脚本将在 `./flatquant_plots` (默认) 或 `--output_dir` 指定的目录中生成图表。
 
-*   **3D 对比图**: 并排显示的 3D 曲面图，展示变换前后的激活值幅度。
-*   **直方图**: 对数刻度的直方图，对比数值分布，突显离群点的抑制效果。
+*   **3D 对比图**: 并排显示的 3D 曲面图，展示变换前后的激活值幅度 (全分辨率，无下采样)。
+    *   左图: 原始输入 (BF16)
+    *   右图: FlatQuant 输出 (Int4 Levels)
