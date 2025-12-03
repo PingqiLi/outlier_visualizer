@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import argparse
 from pathlib import Path
 import torch_npu
@@ -97,11 +98,6 @@ def plot_activation(activation, output_dir, name_prefix=""):
     act_ds = downsample(np.abs(act_2d))
     
     # --- 1. 3D Surface Plot ---
-    try:
-        from mpl_toolkits.mplot3d import Axes3D
-    except ImportError:
-        pass
-
     fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(111, projection='3d')
     
@@ -159,6 +155,12 @@ def main():
             act_unpacked = unpack_int32_to_int4(out_int32)
             
             # If original shape was [S, D//8], new is [S, D]
+            # But if it was [S, G1, G2//8] (from kronecker output), new is [S, G1, G2]
+            # We need to flatten to [S, Hidden] for plotting
+            if act_unpacked.dim() == 3:
+                s, g1, g2 = act_unpacked.shape
+                act_unpacked = act_unpacked.reshape(s, g1 * g2)
+            
             print(f"Unpacked shape: {act_unpacked.shape}")
             
             plot_activation(act_unpacked, args.output_dir, name_prefix=Path(args.output_file).parent.name)
