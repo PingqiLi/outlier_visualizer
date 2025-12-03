@@ -76,56 +76,22 @@ def run_npu_kronecker_quant(
     # Return unpacked int4 values (float type)
     return x_unpacked.cpu()
 
-def plot_activation(activation, output_dir, name_prefix=""):
+def plot_single(activation, output_dir, name_prefix=""):
     """
-    Generates 3D plot and histogram for a single activation tensor.
+    Generates plots for a single tensor (e.g. when only output is available).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # --- Data Preparation ---
-    # Flatten for histogram
-    act_flat = activation.flatten().abs().numpy()
+    act_flat = activation.flatten().abs().float().numpy()
     
-    # Downsample for 3D plot
-    def downsample(mat, target_size=500):
-        rows, cols = mat.shape
-        r_step = max(1, rows // target_size)
-        c_step = max(1, cols // target_size)
-        return mat[::r_step, ::c_step]
-
-    act_2d = activation.numpy()
-    act_ds = downsample(np.abs(act_2d))
+    # Use full resolution data
+    fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
     
-    # --- 1. 3D Surface Plot ---
-    fig = plt.figure(figsize=(12, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    x = np.arange(act_ds.shape[1])
-    y = np.arange(act_ds.shape[0])
-    X, Y = np.meshgrid(x, y)
-    
-    surf = ax.plot_surface(X, Y, act_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
-    
-    ax.set_title(f"FlatQuant Activation (Int4 Levels)\nMax: {act_flat.max():.2f}")
-    ax.set_xlabel('Channel')
-    ax.set_ylabel('Token')
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
-    
-    plt.savefig(output_dir / f"{name_prefix}_3d.png", dpi=150)
+    plt.savefig(output_dir / f"{name_prefix}_comparison_3d.png", dpi=150)
     plt.close()
     
-    # --- 2. Histogram ---
-    plt.figure(figsize=(10, 6))
-    plt.hist(act_flat, bins=100, alpha=0.7, log=True, color='orange')
-    plt.title(f"Activation Distribution (Log Scale) - {name_prefix}")
-    plt.xlabel("Absolute Value (Int4 Level)")
-    plt.ylabel("Count (Log)")
-    plt.grid(True, alpha=0.3)
-    plt.savefig(output_dir / f"{name_prefix}_hist.png")
-    plt.close()
-    
-    print(f"Saved plots to {output_dir}")
+    print(f"Saved comparison plots to {output_dir}")
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize FlatQuant activations (NPU Environment).")
