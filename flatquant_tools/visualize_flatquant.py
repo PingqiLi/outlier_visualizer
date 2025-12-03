@@ -99,7 +99,7 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     y1 = np.arange(orig_ds.shape[0]) # Tokens
     X1, Y1 = np.meshgrid(x1, y1)
     
-    surf1 = ax1.plot_surface(X1, Y1, orig_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+    surf1 = ax1.plot_surface(X1, Y1, orig_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
     ax1.set_title(f"Original Input (BF16)\nMax: {orig_flat.max():.2f}\nShape: {orig_ds.shape}")
     ax1.set_xlabel('Channel (Dim 1)')
     ax1.set_ylabel('Token (Dim 0)')
@@ -111,7 +111,7 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     y2 = np.arange(trans_ds.shape[0])
     X2, Y2 = np.meshgrid(x2, y2)
     
-    surf2 = ax2.plot_surface(X2, Y2, trans_ds, cmap='coolwarm', edgecolor='none', alpha=0.8)
+    surf2 = ax2.plot_surface(X2, Y2, trans_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
     ax2.set_title(f"FlatQuant Output (Int4 Levels)\nMax: {trans_flat.max():.2f}\nShape: {trans_ds.shape}")
     ax2.set_xlabel('Channel (Dim 1)')
     ax2.set_ylabel('Token (Dim 0)')
