@@ -148,16 +148,17 @@ def plot_layer(layer_dir, output_path, io_type, qkv_params):
             # Setting them to 1 means full resolution of the downsampled grid
             surf = ax.plot_surface(X, Y, mat_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
             
-            ax.set_title(f"3D Activation Magnitude: {name}")
+            ax.set_title(f"{name}", fontsize=14)
             ax.set_xlabel('Channel Index')
             ax.set_ylabel('Token ID')
             ax.set_zlabel('Magnitude')
             
             fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
             
-            plt.savefig(output_path / f"{safe_name}_{io_type}_3d.png", dpi=150) # Higher DPI
+            # Clean filename: remove redundant info
+            plt.savefig(output_path / f"{safe_name}_{io_type}.png", dpi=150) # Removed _3d
             plt.close()
-            print(f"  Saved 3D plot for {name}")
+            print(f"  Saved plot for {name}")
         except Exception as e:
             print(f"  Warning: Failed to generate 3D plot for {name}: {e}")
         

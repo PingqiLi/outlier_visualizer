@@ -115,28 +115,47 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     X2, Y2, trans_ds, trans_shape = get_downsampled_data(transformed_activation)
     
     # --- 3D Surface Plot Comparison ---
-    fig = plt.figure(figsize=(20, 8))
+    fig = plt.figure(figsize=(24, 10)) # Wider figure
     
     # Original
     ax1 = fig.add_subplot(121, projection='3d')
     surf1 = ax1.plot_surface(X1, Y1, orig_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
-    ax1.set_title(f"Original Input (BF16)\nMax: {orig_flat.max():.2f}\nShape: {orig_shape}")
-    ax1.set_xlabel('Channel (Dim 1)')
-    ax1.set_ylabel('Token (Dim 0)')
-    fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10)
+    ax1.set_title(f"Original Activation (BF16)\nMax: {orig_flat.max():.2f}", fontsize=14)
+    ax1.set_xlabel('Channel Index', fontsize=12)
+    ax1.set_ylabel('Token ID', fontsize=12)
+    ax1.set_zlabel('Magnitude', fontsize=12)
+    fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, pad=0.1)
     
     # Transformed
     ax2 = fig.add_subplot(122, projection='3d')
     surf2 = ax2.plot_surface(X2, Y2, trans_ds, cmap='coolwarm', edgecolor='none', alpha=0.8, rstride=1, cstride=1)
-    ax2.set_title(f"FlatQuant Output (Int4 Levels)\nMax: {trans_flat.max():.2f}\nShape: {trans_shape}")
-    ax2.set_xlabel('Channel (Dim 1)')
-    ax2.set_ylabel('Token (Dim 0)')
-    fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
+    ax2.set_title(f"FlatQuant Output (Int4 Levels)\nMax: {trans_flat.max():.2f}", fontsize=14)
+    ax2.set_xlabel('Channel Index', fontsize=12)
+    ax2.set_ylabel('Token ID', fontsize=12)
+    ax2.set_zlabel('Magnitude', fontsize=12)
+    fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, pad=0.1)
     
-    plt.savefig(output_dir / f"{name_prefix}_comparison_3d.png", dpi=150)
+    # Clean filename generation
+    # Try to extract layer info: root.model.layers.1.mlp.experts... -> L1_experts
+    import re
+    match = re.search(r'layers\.(\d+)', name_prefix)
+    layer_idx = match.group(1) if match else "unknown"
+    
+    component = "layer"
+    if "experts" in name_prefix:
+        component = "experts"
+    elif "mlp" in name_prefix:
+        component = "mlp"
+    elif "attn" in name_prefix:
+        component = "attn"
+        
+    short_name = f"L{layer_idx}_{component}"
+    filename = f"{short_name}_flatquant_comparison.png"
+    
+    plt.savefig(output_dir / filename, dpi=150, bbox_inches='tight')
     plt.close()
     
-    print(f"Saved comparison plots to {output_dir}")
+    print(f"Saved comparison plot to {output_dir}/{filename}")
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize FlatQuant activations (NPU Environment).")
