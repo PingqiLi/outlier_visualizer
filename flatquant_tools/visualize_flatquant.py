@@ -47,7 +47,14 @@ def run_npu_kronecker_quant(
     left_trans = left_trans.to(device)
     right_trans = right_trans.to(device)
 
-    s, d = x.shape
+    # Handle 3D input (e.g. [S, G1, G2]) -> [S, D]
+    if x.dim() == 3:
+        s, g1, g2 = x.shape
+        x = x.reshape(s, g1 * g2)
+        d = g1 * g2
+    else:
+        s, d = x.shape
+
     g1 = left_trans.shape[0]
     g2 = right_trans.shape[0]
     
@@ -145,6 +152,11 @@ def main():
              
         print(f"Loading input from {input_path}...")
         act = torch.load(input_path, map_location='cpu')
+        
+        # Ensure input is 2D for plotting/processing
+        if act.dim() == 3:
+             s, g1, g2 = act.shape
+             act = act.reshape(s, g1 * g2)
         
         # 2. Try Load Output (Int32)
         output_path = dump_path / "output_0.pth"
