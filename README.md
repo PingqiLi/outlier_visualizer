@@ -39,27 +39,27 @@
 
 ```python
         # Inject msit_llm dump hook AFTER warmup to avoid capturing warmup data
-        try:
-            from msit_llm import DumpConfig, register_hook
-            from vllm_ascend.common.log import logger
-            # 配置 Dump 参数
-            # token_range =[0]，表示仅dump prefill阶段
-            # layer_name: 指定 dump 的层。
-            # 注意：msit_llm 仅支持 '*' 通配符，不支持复杂的正则（如 [0-4]）。
-            # 'root' 是 msit_llm 硬编码的顶层名称，因此必须以 'root' 开头。
-            # 配置为 'root.model.layers.*' 将 dump 所有层，你需要 dump 后手动筛选前 5 层的数据。
-            dump_config = DumpConfig(
-                dump_path='./dump_data',
-                token_range=[0],
-                layer_name='root.model.layers.*' 
-            )
-            # self.model_runner.model is the actual model instance
-            register_hook(self.model_runner.model, dump_config)
-            logger.info("Injected msit_llm dump hook for Qwen3-MoE (after warmup).")
-        except ImportError:
-            logger.warning("msit_llm not found, skipping dump hook injection.")
-        except Exception as e:
-            logger.warning(f"Failed to inject dump hook: {e}")
+        import os
+        dump_path = os.environ.get('DUMP_PATH')
+        if dump_path:
+            try:
+                from msit_llm import DumpConfig, register_hook
+                from vllm_ascend.common.log import logger
+                # 配置 Dump 参数
+                # token_range =[0]，表示仅dump prefill阶段
+                # layer_name: 指定 dump 的层。
+                # 'root' 是 msit_llm 硬编码的顶层名称，因此必须以 'root' 开头。
+                dump_config = DumpConfig(
+                    dump_path=dump_path,
+                    token_range=[0],
+                    layer_name='root.model.layers.*' 
+                )
+                register_hook(self.model_runner.model, dump_config)
+                logger.info(f"Injected msit_llm dump hook for Qwen3-MoE (after warmup). Dump path: {dump_path}")
+            except ImportError:
+                logger.warning("msit_llm not found, skipping dump hook injection.")
+            except Exception as e:
+                logger.warning(f"Failed to inject dump hook: {e}")
 ```
 
 ## 2. 启动服务
@@ -204,7 +204,8 @@ python3 visualize_outliers.py \
     ```python
     import torch_npu
     dump_config = DumpConfig(
-        ...,
+        dump_path="./dump_data",
+        token_range=[0],
         mode=["api"], # 或 ["module", "api"]
         api_list=[torch_npu.npu_kronecker_quant], # 白名单
         layer_name='.*'
