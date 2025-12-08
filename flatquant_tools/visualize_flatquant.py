@@ -132,7 +132,7 @@ def plot_activation(orig_activation, transformed_activation, output_dir, name_pr
     
     name_prefix = name_prefix.removeprefix("root.model.")
     safe_name = name_prefix.replace(".", "_")
-    filename = f"{safe_name}.flatquant_comparison.png"
+    filename = f"{safe_name}_flatquant_comparison.png"
     
     plt.savefig(output_dir / filename, dpi=150, bbox_inches='tight')
     plt.close()

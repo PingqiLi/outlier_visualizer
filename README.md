@@ -85,7 +85,8 @@ vllm serve /workspace/weights/Qwen3-30B \
 
 **运行脚本**:
 ```bash
-python3 dump_request.py --text_file your_text.txt --model_path /path/to/model
+# 使用modelslim提供的 long calib 数据集的id=0的文本
+python3 dump_request.py --text_file long_calib_id_0.txt --model_path /path/to/model
 ```
 
 ### 3.1 原始 Dump 目录结构
