@@ -43,14 +43,14 @@
             from msit_llm import DumpConfig, register_hook
             from vllm_ascend.common.log import logger
             # 配置 Dump 参数
-            # token_range=list(range(2000)): dump 前 2000 个 step
+            # token_range =[0]，表示仅dump prefill阶段
             # layer_name: 指定 dump 的层。
             # 注意：msit_llm 仅支持 '*' 通配符，不支持复杂的正则（如 [0-4]）。
             # 'root' 是 msit_llm 硬编码的顶层名称，因此必须以 'root' 开头。
             # 配置为 'root.model.layers.*' 将 dump 所有层，你需要 dump 后手动筛选前 5 层的数据。
             dump_config = DumpConfig(
                 dump_path='./dump_data',
-                token_range=list(range(2000)),
+                token_range=[0],
                 layer_name='root.model.layers.*' 
             )
             # self.model_runner.model is the actual model instance
@@ -64,11 +64,9 @@
 
 ## 2. 启动服务
 
-使用你提供的命令启动 vLLM 服务：
-
 ```bash
 vllm serve /workspace/weights/Qwen3-30B \
-    --max-model-len 2000 \
+    --max-model-len 2001 \
     --port 8017 \
     --tensor-parallel-size 4 \
     --trust-remote-code \
@@ -78,6 +76,7 @@ vllm serve /workspace/weights/Qwen3-30B \
 *注意：*
 1.  请确保 `--tensor-parallel-size 4` 与你的 NPU 卡数一致。
 2.  **强烈建议添加 `--enforce-eager` 参数**。`msit_llm` 基于 PyTorch Hook 实现，在 Eager 模式下工作最稳定。如果不加此参数，vLLM 可能会使用 Graph 模式 (CUDAGraph/ACLGraph)，导致部分中间层 Hook 失效或无法捕获。
+3. `--max-model-len 2001`表示模型最大长度为2001，prefill阶段输入tokens=2000，因此vLLM会把2000 tokens当作一步（step 0）进行prefill。配合`token_range=[0]`，即可完整dump出这2000长度的激活值。如果`max-model-len`小于输入长度，vLLM可能会报错。
 
 ## 3. 发送请求进行 dump_request.py
 
