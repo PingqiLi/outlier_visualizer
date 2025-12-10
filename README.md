@@ -32,7 +32,7 @@
 你需要修改 `vllm_ascend/worker/worker_v1.py` 文件，在 `compile_or_warm_up_model` 方法的末尾注入 `msit_llm` 的 Dump 钩子。
 **注意：** 之前建议修改 `model_runner_v1.py`，但发现 vLLM 启动时会进行 Warmup 推理，导致提前触发 Dump。修改 `worker_v1.py` 可以确保在 Warmup 之后才注入钩子。
 
-**文件路径**: `/Users/patrick/Projects/vllm-ascend/vllm_ascend/worker/worker_v1.py`
+**文件路径**: `.../vllm-ascend/vllm_ascend/worker/worker_v1.py`
 
 **修改内容**:
 在 `compile_or_warm_up_model` 方法的末尾（`NPUPlatform.seed_everything` 之后），添加以下代码：
@@ -55,7 +55,7 @@
                     layer_name='root.model.layers.*' 
                 )
                 register_hook(self.model_runner.model, dump_config)
-                logger.info(f"Injected msit_llm dump hook for Qwen3-MoE (after warmup). Dump path: {dump_path}")
+                logger.info(f"Injected msit_llm dump hook -> dump path: {dump_path}")
             except ImportError:
                 logger.warning("msit_llm not found, skipping dump hook injection.")
             except Exception as e:
@@ -199,20 +199,40 @@ python3 visualize_outliers.py \
         # ...
     ```
 
-2.  **修改 `worker_v1.py`**:
-    配置 `DumpConfig` 开启 API 模式。
+2.  **修改 `msit_llm` 源码 (`dump_config.py`)**:
+    为了支持 dump 多个同名算子的输出（例如一个 Layer 中调用了两次 `npu_kronecker_quant`），需要修改 `dump_config.py` 以便生成不同的文件夹名（如 `xx.1`, `xx.2`）。
+
+    **文件路径**: `.../msit/msit/components/llm/msit_llm/dump/torch_dump/dump_config.py` (具体路径取决于你的安装位置)
+
+    **修改内容**:
+    找到 `get_api_folder_name` 方法，在 `else` 分支中添加 `self.api_folder_name_set.add(folder_name)`：
     ```python
-    import torch_npu
-    dump_config = DumpConfig(
-        dump_path="./dump_data",
-        token_range=[0],
-        mode=["api"], # 或 ["module", "api"]
-        api_list=[torch_npu.npu_kronecker_quant], # 白名单
-        layer_name='.*'
-    )
+        def get_api_folder_name(self, api_name, index=0):
+            # ...
+            if folder_name in self.api_folder_name_set:
+                return self.get_api_folder_name(api_name, index + 1)
+            else:
+                self.api_folder_name_set.add(folder_name) # <--- 添加这一行
+                return folder_name
     ```
 
-3.  **结果**:
+3.  **修改 `.../vllm-ascend/vllm_ascend/worker/worker_v1.py`**:
+    配置 `DumpConfig` 开启 API 模式，通过环境变量 `DUMP_PATH` 使能dump。
+    ```python
+    import torch_npu
+    dump_path = os.environ.get('DUMP_PATH')
+    if dump_path:
+        dump_config = DumpConfig(
+            dump_path=dump_path,
+            token_range=[0],
+            mode=["api"], # 或 ["module", "api"]
+            api_list=[torch_npu.npu_kronecker_quant], # 白名单
+            layer_name='root.model.layers.*' 
+        )
+        register_hook(self.model_runner.model, dump_config)
+    ```
+
+4.  **结果**:
     数据会保存在 `.../root.model.layers.*.mlp.experts.npu_kronecker_quant/` 目录下。
     *   `input_0.pth`: 原始激活值 (BF16)
     *   `input_1.pth`: Left Transform Matrix
